@@ -52,10 +52,10 @@ oneclick_dummy_metric{label="test"} 1
 支持配置、日志、模块化结构
 
 ## 🗂️ 阶段划分与任务清单
-### ✅ 阶段 1：项目初始化与基础搭建（1 天）
+### ✅ 阶段 1：项目初始化与基础搭建（1 天）（已完成）
 #### 📌 任务
 - 初始化 Go 模块：go mod init oneclick-metrics-go
-- 创建基础目录结构（你已完成）
+- 创建基础目录结构
 - 安装依赖：
 ```go
 go get github.com/jackc/pgx/v5
@@ -66,7 +66,7 @@ go get github.com/prometheus/client_golang/prometheus/promhttp
 #### 🎯 目标
 - 能运行 go run cmd/main.go 并在 http://localhost:8000/metrics 输出一个 dummy 指标
 
-### ✅ 阶段 2：数据库连接模块（1 天）
+### ✅ 阶段 2：数据库连接模块（1 天）（已完成）
 #### 📌 任务
 - 在 db/connection.go 中实现连接池（使用 pgxpool）
 - 支持从环境变量或配置文件读取连接信息
