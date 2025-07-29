@@ -3,9 +3,8 @@ package main
 import (
 	"log"
 	"net/http"
+	"oneclick-metrics-go/metrics"
 	"time"
-
-	"omclick-metrics-go/metrics"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -19,12 +18,13 @@ func main() {
 	}()
 
 	// 注册指标
-	metrics.RegisterMetrics()
+	m := metrics.SetupMetrics()
+	metrics.RegisterMetrics(m)
 
 	// 定时采集指标
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(15 * time.Second)
 	for range ticker.C {
 		log.Println("Collecting metrics...")
-		metrics.CollectDummyMetric()
+		metrics.CollectMetrics(m)
 	}
 }
