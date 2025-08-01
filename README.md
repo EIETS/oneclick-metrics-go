@@ -36,11 +36,49 @@ go run cmd/main.go
 启动后，Prometheus 指标服务将运行在 http://localhost:8000/metrics。
 
 ## 📊 示例输出
-访问 /metrics 后，你将看到类似输出：
+访问 /metrics 后，你将看到如下输出（部分）：
+- 注：数据源来在calix公司内部数据，须在公司内部环境执行
 ```bash
-# HELP oneclick_dummy_metric A dummy metric for testing
-# TYPE oneclick_dummy_metric gauge
-oneclick_dummy_metric{label="test"} 1
+# HELP oneclick_pr_missing_report The number of pull requests in one project with missing reports
+# TYPE oneclick_pr_missing_report gauge
+oneclick_pr_missing_report{pr_state="declined",project="APIPTM"} 0
+oneclick_pr_missing_report{pr_state="declined",project="CCL"} 0
+oneclick_pr_missing_report{pr_state="declined",project="CPC"} 0
+oneclick_pr_missing_report{pr_state="declined",project="DEMO"} 0
+oneclick_pr_missing_report{pr_state="declined",project="MAP"} 0
+oneclick_pr_missing_report{pr_state="declined",project="NAP"} 0
+oneclick_pr_missing_report{pr_state="declined",project="OCC"} 0
+oneclick_pr_missing_report{pr_state="declined",project="ONECC"} 0
+oneclick_pr_missing_report{pr_state="declined",project="SAPP"} 0
+oneclick_pr_missing_report{pr_state="declined",project="TEST"} 0
+oneclick_pr_missing_report{pr_state="merged",project="APIPTM"} 0
+oneclick_pr_missing_report{pr_state="merged",project="CCL"} 0
+oneclick_pr_missing_report{pr_state="merged",project="CPC"} 0
+oneclick_pr_missing_report{pr_state="merged",project="DEMO"} 0
+oneclick_pr_missing_report{pr_state="merged",project="MAP"} 0
+oneclick_pr_missing_report{pr_state="merged",project="NAP"} 0
+oneclick_pr_missing_report{pr_state="merged",project="OCC"} 0
+oneclick_pr_missing_report{pr_state="merged",project="ONECC"} 0
+oneclick_pr_missing_report{pr_state="merged",project="SAPP"} 0
+oneclick_pr_missing_report{pr_state="merged",project="TEST"} 0
+oneclick_pr_missing_report{pr_state="open",project="APIPTM"} 0
+oneclick_pr_missing_report{pr_state="open",project="CCL"} 1
+oneclick_pr_missing_report{pr_state="open",project="CPC"} 0
+oneclick_pr_missing_report{pr_state="open",project="DEMO"} 0
+oneclick_pr_missing_report{pr_state="open",project="MAP"} 0
+oneclick_pr_missing_report{pr_state="open",project="NAP"} 0
+oneclick_pr_missing_report{pr_state="open",project="OCC"} 0
+oneclick_pr_missing_report{pr_state="open",project="ONECC"} 0
+oneclick_pr_missing_report{pr_state="open",project="SAPP"} 0
+oneclick_pr_missing_report{pr_state="open",project="TEST"} 0
+```
+- 其中，grafana监控的CCL项目，如下图所示
+- ![img.png](img.png)
+- 对应上方的metrics中
+```bash
+oneclick_pr_missing_report{pr_state="open",project="CCL"} 1 
+oneclick_pr_missing_report{pr_state="merged",project="CCL"} 0
+oneclick_pr_missing_report{pr_state="declined",project="CCL"} 0
 ```
 
 ## 🧭 总体目标
