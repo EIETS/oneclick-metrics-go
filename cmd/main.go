@@ -30,9 +30,9 @@ func main() {
 	}
 	fmt.Println("✅ 数据库连接成功！")
 
-	var db = db.DB
+	var dB = db.DB
 	ctx := context.Background()
-	err := metrics.RegisterPreparedSQLs(ctx, db, true)
+	err := db.RegisterPreparedSQLs(ctx, dB, true)
 	if err != nil {
 		return
 	}
@@ -41,7 +41,7 @@ func main() {
 	for range ticker.C {
 		log.Println("Collecting metrics...")
 		//metrics.CollectMetrics(m)
-		err = metrics.ExportPRMissingReport(ctx, m, db)
+		err = metrics.ExportPRMissingReport(ctx, m, dB)
 		if err != nil {
 			fmt.Println(err)
 		}
