@@ -1,8 +1,11 @@
 package main
 
 import (
+	"context"
+	"fmt"
 	"log"
 	"net/http"
+	"oneclick-metrics-go/db"
 	"oneclick-metrics-go/metrics"
 	"time"
 
@@ -21,10 +24,26 @@ func main() {
 	m := metrics.SetupMetrics()
 	metrics.RegisterMetrics(m)
 
+	if err := db.InitDb(); err != nil {
+		fmt.Println("❌ 数据库初始化失败:", err)
+		return
+	}
+	fmt.Println("✅ 数据库连接成功！")
+
+	var db = db.DB
+	ctx := context.Background()
+	err := metrics.RegisterPreparedSQLs(ctx, db, true)
+	if err != nil {
+		return
+	}
 	// 定时采集指标
 	ticker := time.NewTicker(15 * time.Second)
 	for range ticker.C {
 		log.Println("Collecting metrics...")
-		metrics.CollectMetrics(m)
+		//metrics.CollectMetrics(m)
+		err = metrics.ExportPRMissingReport(ctx, m, db)
+		if err != nil {
+			fmt.Println(err)
+		}
 	}
 }

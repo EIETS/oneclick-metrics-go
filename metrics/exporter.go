@@ -4,8 +4,50 @@ import (
 	"context"
 	"database/sql"
 	"log"
+	"strconv"
 	"strings"
 )
+
+var allProjects map[string]struct{} = make(map[string]struct{})
+
+type FirstCall struct {
+	flag bool `default:"true"`
+}
+
+type PrMissingReport struct {
+	Count   string
+	State   string
+	Project string
+}
+
+type PrNum struct {
+	State   string
+	Project string
+	Count   string
+}
+
+type OpenPrReport struct {
+	StashRepo     string
+	PrNo          string
+	PresentReport string
+	Project       string
+	ReportData    string
+}
+
+type ClosedPrReport = OpenPrReport
+
+type ResultReport struct {
+	Report  string
+	Status  string
+	Project string
+	Count   string
+}
+
+type CheckSummary struct {
+	StashRepo     string
+	PresrntReport string
+	Project       string
+}
 
 // 注册pgsql语句
 func RegisterPreparedSQLs(ctx context.Context, db *sql.DB, firstCall bool) error {
@@ -47,7 +89,7 @@ func RegisterPreparedSQLs(ctx context.Context, db *sql.DB, firstCall bool) error
             ORDER BY
                 stash_repo,
                 prno,
-                project.project_key;`,
+                project.project_key`,
 		"open_pr_report_query": `
 			SELECT
                 repo.slug AS stash_repo,
@@ -119,7 +161,7 @@ func RegisterPreparedSQLs(ctx context.Context, db *sql.DB, firstCall bool) error
 				WHERE
 				    allrepts IS NULL
                 GROUP BY
-                    project_key;`,
+                    project_key`,
 		"pr_counts_query(timestamp)": `
 			SELECT
                 pr_state,
@@ -133,7 +175,7 @@ func RegisterPreparedSQLs(ctx context.Context, db *sql.DB, firstCall bool) error
                 AND ( pr.closed_timestamp is null OR (pr.closed_timestamp >= ($1 - interval '1 minute') and pr.closed_timestamp < $1 ) )
             GROUP BY
                 pr_state,
-                project.project_key;`,
+                project.project_key`,
 		"pr_missing_report_query(timestamp)": `
 			SELECT SUM(cnt),pr_state,project_key
         FROM (
@@ -200,16 +242,129 @@ func RegisterPreparedSQLs(ctx context.Context, db *sql.DB, firstCall bool) error
         GROUP BY project_key,pr_state`,
 	}
 
-	return nil
+	for proto, sqlText := range regSQLs {
+		name, param := parseSQLName(proto) // 把sql名称和参数拆分开来
 
+		if !firstCall {
+			// 如果不是首次执行sql，sql已经注册过prepare，这时需要先释放prepare过的sql，重新进行prepare
+			_, err := db.ExecContext(ctx, "DEALLOCATE "+name)
+			if err != nil {
+				log.Printf("释放之前 prepare 过的 SQL 时出现错误 %s: %v", name, err)
+			}
+		}
+
+		// 拼接完整的pgsql prepare语句
+		prepareStmt := "PREPARE " + name + param + " AS " + sqlText
+		_, err := db.ExecContext(ctx, prepareStmt)
+		if err != nil {
+			log.Printf("preparing SQL 时出错 %s: %v", name, err)
+		}
+		//fmt.Println(prepareStmt)
+	}
+
+	return nil
 }
 
-func ExportPRMissingReport(m *Metrics) {
-	defer wg.Done()
-	m.OneClickPRMissingReport.WithLabelValues(
-		"pr_state",
-		"project",
-	).Set(float64(1))
+// 解析sql名称和参数
+func parseSQLName(proto string) (name string, param string) {
+	idx := strings.Index(proto, "(")
+	if idx == -1 {
+		return proto, ""
+	}
+	return proto[:idx], proto[idx:]
+}
+
+// GetAllProjects 从数据库中获取所有项目的名称
+func GetAllProjects(ctx context.Context, db *sql.DB, knownProjects map[string]struct{}) (map[string]struct{}, error) {
+	// 如果缓存为空，则从数据库查询
+	if len(allProjects) == 0 {
+		query := `
+            SELECT DISTINCT project.project_key
+            FROM sta_pull_request pr
+            INNER JOIN repository repo ON pr.from_repository_id = repo.id
+            INNER JOIN project ON repo.project_id = project.id
+            WHERE project.project_key NOT LIKE '~%';
+        `
+		rows, err := db.QueryContext(ctx, query)
+		if err != nil {
+			log.Printf("获取项目名称过程中有误: %v", err)
+			return nil, err
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			var projectKey string
+			if err = rows.Scan(&projectKey); err != nil {
+				log.Printf("浏览项目key时出错: %v", err)
+				continue
+			}
+			allProjects[projectKey] = struct{}{}
+		}
+
+		if err = rows.Err(); err != nil {
+			return nil, err
+		}
+	}
+
+	// 合并 knownProjects
+	for k := range knownProjects {
+		allProjects[k] = struct{}{}
+	}
+
+	return allProjects, nil
+}
+
+func ExportPRMissingReport(ctx context.Context, m *Metrics, db *sql.DB) error {
+	//defer wg.Done()
+
+	pgsql := "EXECUTE pr_missing_report_query(date_trunc('minute',current_timestamp AT TIME ZONE 'UTC'));"
+	rows, err := db.QueryContext(ctx, pgsql)
+	if err != nil {
+		return err
+	}
+	var rawResults []PrMissingReport          // 获取本次sql查询的结果
+	knowProjects := make(map[string]struct{}) // 保存本次查询中涉及的project
+	for rows.Next() {
+		var r PrMissingReport
+		if err = rows.Scan(&r.Count, &r.State, &r.Project); err != nil {
+			return err
+		}
+		rawResults = append(rawResults, r)
+		knowProjects[r.Project] = struct{}{}
+	}
+
+	if err = rows.Err(); err != nil {
+		return err
+	}
+
+	allProjects, err := GetAllProjects(ctx, db, knowProjects)
+	if err != nil {
+		return err
+	}
+
+	// 初始化计数器
+	cntArr := make(map[string][3]int)
+	for project := range allProjects {
+		cntArr[project] = [3]int{0, 0, 0}
+	}
+
+	// 填充数据, cntArr 中的数据是每一个project中每一个状态的丢失报告的pr的数量
+	for _, r := range rawResults {
+		if state, _ := strconv.Atoi(r.State); state >= 0 && state <= 2 {
+			arr := cntArr[r.Project]
+			count, _ := strconv.Atoi(r.Count)
+			arr[state] = count
+			cntArr[r.Project] = arr
+		}
+	}
+
+	for project, counts := range cntArr {
+		m.OneClickPRMissingReport.WithLabelValues("open", project).Set(float64(counts[0]))
+		m.OneClickPRMissingReport.WithLabelValues("merged", project).Set(float64(counts[1]))
+		m.OneClickPRMissingReport.WithLabelValues("declined", project).Set(float64(counts[2]))
+	}
+
+	return nil
 }
 
 func ExportPRNum(m *Metrics) {

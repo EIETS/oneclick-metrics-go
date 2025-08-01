@@ -76,16 +76,16 @@ func RegisterMetrics(m *Metrics) {
 	log.Println("Registered Prometheus metrics")
 }
 
-func CollectMetrics(m *Metrics) {
-	wg.Add(6)
-	go ExportPRMissingReport(m)
-	go ExportPRNum(m)
-	go ExportOpenPRReport(m)
-	go ExportClosedPRReport(m)
-	go ExportResultReport(m)
-	go ExportCheckSummary(m)
-	wg.Wait()
-}
+//func CollectMetrics(m *Metrics) {
+//	wg.Add(6)
+//	go ExportPRMissingReport(context.Context(),m,db)
+//	go ExportPRNum(m)
+//	go ExportOpenPRReport(m)
+//	go ExportClosedPRReport(m)
+//	go ExportResultReport(m)
+//	go ExportCheckSummary(m)
+//	wg.Wait()
+//}
 
 // 下面的是示例代码
 
