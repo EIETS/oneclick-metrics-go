@@ -20,7 +20,7 @@ type Config struct {
 	} `yaml:"database"`
 }
 
-// 全局连接池
+// 全局连接
 var DB *sql.DB
 
 // 加载配置类

@@ -88,32 +88,37 @@ func GetAllProjects(ctx context.Context, db *sql.DB, knownProjects map[string]st
 	return allProjects, nil
 }
 
-func ExportPRMissingReport(ctx context.Context, m *Metrics, db *sql.DB) error {
+func ExportPRMissingReport(ctx context.Context, m *Metrics, db *sql.DB) {
 	//defer wg.Done()
+	m.OneClickPRMissingReport.Reset()
 
 	pgsql := "EXECUTE pr_missing_report_query(date_trunc('minute',current_timestamp AT TIME ZONE 'UTC'));"
 	rows, err := db.QueryContext(ctx, pgsql)
 	if err != nil {
-		return err
+		log.Printf("ExportPRMissingReport QueryContext 过程中发生错误: %v", err)
+		return
 	}
 	var rawResults []PrMissingReport          // 获取本次sql查询的结果
 	knowProjects := make(map[string]struct{}) // 保存本次查询中涉及的project
 	for rows.Next() {
 		var r PrMissingReport
 		if err = rows.Scan(&r.Count, &r.State, &r.Project); err != nil {
-			return err
+			log.Printf("ExportPRMissingReport scan 过程中发生错误: %v", err)
+			continue
 		}
 		rawResults = append(rawResults, r)
 		knowProjects[r.Project] = struct{}{}
 	}
 
 	if err = rows.Err(); err != nil {
-		return err
+		log.Printf("ExportPRMissingReport Err 过程中发生错误: %v", err)
+		return
 	}
 
-	allProjects, err := GetAllProjects(ctx, db, knowProjects)
+	allProjects, err = GetAllProjects(ctx, db, knowProjects)
 	if err != nil {
-		return err
+		log.Printf("ExportPRMissingReport GetAllProjects 过程中发生错误: %v", err)
+		return
 	}
 
 	// 初始化计数器
@@ -138,15 +143,67 @@ func ExportPRMissingReport(ctx context.Context, m *Metrics, db *sql.DB) error {
 		m.OneClickPRMissingReport.WithLabelValues("declined", project).Set(float64(counts[2]))
 	}
 
-	return nil
+	return
 }
 
-func ExportPRNum(m *Metrics) {
-	defer wg.Done()
-	m.OneClickPRNum.WithLabelValues(
-		"pr_state",
-		"project",
-	).Set(float64(1))
+func ExportPRNum(ctx context.Context, m *Metrics, db *sql.DB) {
+	//defer wg.Done()
+	m.OneClickPRNum.Reset()
+	pgsql := "EXECUTE pr_counts_query(date_trunc('minute',current_timestamp AT TIME ZONE 'UTC'))"
+	rows, err := db.QueryContext(ctx, pgsql)
+	if err != nil {
+		log.Printf("ExportPRNum QueryContext 过程中发生错误: %v", err)
+		return
+	}
+	defer rows.Close()
+
+	var rawResults []PrNum
+	knowProjects := make(map[string]struct{})
+
+	for rows.Next() {
+		var r PrNum
+		if err = rows.Scan(&r.State, &r.Project, &r.Count); err != nil {
+			log.Printf("ExportPRNum scan 过程中发生错误: %v", err)
+			continue
+		}
+		rawResults = append(rawResults, r)
+		knowProjects[r.Project] = struct{}{}
+	}
+	if err = rows.Err(); err != nil {
+		log.Printf("ExportPRNum Err 过程中发生错误: %v", err)
+		return
+	}
+
+	// 获取所有项目
+	allProjects, err = GetAllProjects(ctx, db, knowProjects)
+	if err != nil {
+		log.Printf("ExportPRNum GetAllProjects 过程中发生错误: %v", err)
+		return
+	}
+
+	// 初始化计数器
+	cntArr := make(map[string][3]int)
+	for project := range allProjects {
+		cntArr[project] = [3]int{0, 0, 0}
+	}
+
+	// 填充数据
+	for _, r := range rawResults {
+		if state, _ := strconv.Atoi(r.State); state >= 0 && state <= 2 {
+			arr := cntArr[r.Project]
+			count, _ := strconv.Atoi(r.Count)
+			arr[state] = count
+			cntArr[r.Project] = arr
+		}
+	}
+
+	for project, counts := range cntArr {
+		m.OneClickPRNum.WithLabelValues("open", project).Set(float64(counts[0]))
+		m.OneClickPRNum.WithLabelValues("merged", project).Set(float64(counts[1]))
+		m.OneClickPRNum.WithLabelValues("declined", project).Set(float64(counts[2]))
+	}
+
+	return
 }
 
 func ExportOpenPRReport(m *Metrics) {

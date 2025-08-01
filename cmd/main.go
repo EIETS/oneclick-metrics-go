@@ -3,13 +3,12 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"log"
 	"net/http"
 	"oneclick-metrics-go/db"
 	"oneclick-metrics-go/metrics"
-	"time"
-
-	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"sync"
 )
 
 func main() {
@@ -32,18 +31,16 @@ func main() {
 
 	var dB = db.DB
 	ctx := context.Background()
-	err := db.RegisterPreparedSQLs(ctx, dB, true)
-	if err != nil {
-		return
+	for {
+		wg := sync.WaitGroup{}
+		metrics.CollectMetrics(ctx, m, dB, &wg)
 	}
-	// 定时采集指标
-	ticker := time.NewTicker(15 * time.Second)
-	for range ticker.C {
-		log.Println("Collecting metrics...")
-		//metrics.CollectMetrics(m)
-		err = metrics.ExportPRMissingReport(ctx, m, dB)
-		if err != nil {
-			fmt.Println(err)
-		}
-	}
+
+	//// 定时采集指标
+	//ticker := time.NewTicker(15 * time.Second)
+	//for range ticker.C {
+	//	wg := sync.WaitGroup{}
+	//	log.Println("Collecting metrics...")
+	//	metrics.CollectMetrics(ctx, m, dB, &wg)
+	//}
 }

@@ -1,10 +1,8 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"oneclick-metrics-go/db"
-	"oneclick-metrics-go/metrics"
 )
 
 func main() {
@@ -13,27 +11,201 @@ func main() {
 		return
 	}
 	fmt.Println("✅ 数据库连接成功！")
+	test()
 
-	var db = db.DB
-	ctx := context.Background()
-	err := metrics.RegisterPreparedSQLs(ctx, db, true)
-	if err != nil {
-		return
+}
+
+func test() {
+	var regSQLtest = map[string]string{
+		"check_summary_query(text[])": `
+			SELECT
+                repo.slug as stash_repo,
+				string_agg(DISTINCT "REPORT_KEY",',') as present_report,
+				project.project_key as project
+	        FROM 
+                "AO_2AD648_MERGE_CHECK" as merge_check
+                RIGHT JOIN repository repo on merge_check."RESOURCE_ID" = repo.id AND merge_check."SCOPE_TYPE" = 'REPOSITORY'
+                INNER JOIN project on repo.project_id = project.id
+	        WHERE 
+                project.project_key = ANY($1)
+	        GROUP BY
+                project.project_key,
+				repo.slug	`,
+		"closed_pr_report_query(timestamp)": `
+			SELECT
+                repo.slug AS stash_repo,
+                pr.scoped_id AS prno,
+                string_agg (DISTINCT insrep."REPORT_KEY", ',') FILTER (WHERE insrep."REPORT_KEY" in ( 'sast','sabug','savul','sasmell','smoke','ci','codecoverage','snyk' )) AS present_reports,
+                project.project_key AS "project",
+				'[' || string_agg(DISTINCT nullif(insrep."DATA",''),',') || ']' AS report_data
+            FROM
+                sta_pull_request AS pr
+                INNER JOIN repository repo on pr.to_repository_id = repo.id
+                INNER JOIN project on repo.project_id = project.id
+                LEFT  JOIN "AO_2AD648_INSIGHT_REPORT" insrep on pr.from_hash = insrep."COMMIT_ID"
+                and pr.to_repository_id = insrep."REPOSITORY_ID"
+            WHERE
+                project.project_key not like '~%' AND (pr.closed_timestamp >= (date_trunc('minute', $1) - INTERVAL '1 minute')
+            AND pr.closed_timestamp < date_trunc('minute', $1))
+            GROUP BY
+                stash_repo,
+                prno,
+                project.project_key
+            ORDER BY
+                stash_repo,
+                prno,
+                project.project_key`,
+		"open_pr_report_query": `
+			SELECT
+                repo.slug AS stash_repo,
+                pr.scoped_id AS prno,
+                string_agg (DISTINCT insrep."REPORT_KEY", ',') FILTER (WHERE insrep."REPORT_KEY" in ( 'sast','sabug','savul','sasmell','smoke','ci','codecoverage','snyk' )) AS present_reports,
+                project.project_key AS "project",
+                '[' || string_agg(DISTINCT nullif(insrep."DATA",''),',') || ']' AS report_data
+            FROM
+                sta_pull_request AS pr
+                INNER JOIN repository repo on pr.to_repository_id = repo.id
+                INNER JOIN project on repo.project_id = project.id
+                LEFT  JOIN "AO_2AD648_INSIGHT_REPORT" insrep on pr.from_hash = insrep."COMMIT_ID"
+                and pr.to_repository_id = insrep."REPOSITORY_ID"
+            WHERE
+                pr.pr_state = 0 AND project.project_key not like '~%'
+            GROUP BY
+                stash_repo,
+                prno,
+                project.project_key
+            ORDER BY
+                stash_repo,
+                prno,
+                project.project_key`,
+		"result_report_query(text)": `
+			WITH prbase AS(
+                SELECT
+				    pr.id AS pr_id,
+                    CASE WHEN insrep."REPORT_KEY" = $1 THEN insrep."REPORT_KEY" ELSE null END AS report,
+					string_agg(CASE WHEN insrep."REPORT_KEY" = $1 THEN insrep."REPORT_KEY" ELSE null END,',') OVER prw AS allrepts,
+                    insrep."RESULT_ID" AS status,
+                    project.project_key AS project_key
+                FROM
+                    sta_pull_request pr
+                    INNER JOIN repository repo ON pr.to_repository_id = repo.id
+                    INNER JOIN project ON repo.project_id = project.id
+                    LEFT JOIN "AO_2AD648_INSIGHT_REPORT" insrep ON pr.from_hash = insrep."COMMIT_ID"
+                    AND pr.to_repository_id = insrep."REPOSITORY_ID"
+                WHERE
+                    pr.pr_state = 0 AND project.project_key NOT LIKE '~%'
+                    AND ( insrep."REPORT_KEY" = $1 OR repo.id = ANY ( SELECT "RESOURCE_ID" FROM "AO_2AD648_MERGE_CHECK" WHERE "RESOURCE_ID" = repo.id AND "REPORT_KEY" = $1 ) )
+                GROUP BY
+                    project.project_key,
+                    pr.id,
+                    report,
+                    status
+				WINDOW prw AS (PARTITION BY pr.id)
+			)
+            SELECT
+                    report,
+                    status,
+                    project_key AS project,
+                    COUNT(*) AS cnt
+                FROM
+				    prbase
+                WHERE
+                    report = $1
+                GROUP BY
+                    status,
+					report,
+                    project_key
+			UNION
+				SELECT
+                    $1 AS report,
+                    2 AS status,
+                    project_key AS project,
+                    COUNT(*) AS cnt
+                FROM
+				    prbase
+				WHERE
+				    allrepts IS NULL
+                GROUP BY
+                    project_key`,
+		"pr_counts_query(timestamp)": `
+			SELECT
+                pr_state,
+                project.project_key AS project,
+                COUNT(*)
+            FROM
+                sta_pull_request AS pr
+                INNER JOIN repository AS repo ON pr.to_repository_id = repo.id
+                INNER JOIN project AS project ON repo."project_id" = project.id
+            WHERE project.project_key not like '~%'
+                AND ( pr.closed_timestamp is null OR (pr.closed_timestamp >= ($1 - interval '1 minute') and pr.closed_timestamp < $1 ) )
+            GROUP BY
+                pr_state,
+                project.project_key`,
+		"pr_missing_report_query(timestamp)": `
+			SELECT SUM(cnt),pr_state,project_key
+        FROM (
+        -- part 1: count all pr(s) with partial reports
+        SELECT COUNT(*) AS cnt,pr_state,project_key
+        FROM (
+            SELECT
+                pr.id,
+                pr.pr_state,
+                repo.id AS repo_id,
+                project.project_key
+            FROM
+                "AO_2AD648_INSIGHT_REPORT" AS insrep
+                INNER JOIN sta_pull_request AS pr ON insrep."COMMIT_ID" = pr.from_hash
+                INNER JOIN repository AS repo ON pr.to_repository_id = repo.id
+                INNER JOIN project AS project ON repo.project_id = project.id
+                INNER JOIN (
+                    SELECT
+                        merge_check."RESOURCE_ID" AS repo_id,
+                        array_agg("REPORT_KEY") AS req_arr
+                    FROM
+                        "AO_2AD648_MERGE_CHECK" AS merge_check
+                    WHERE
+                        "SCOPE_TYPE" = 'REPOSITORY'
+                        AND "REPORT_KEY" IN ('sast','sabug','savul','sasmell','smoke','ci','codecoverage','snyk')
+                    GROUP BY
+                        merge_check."RESOURCE_ID"
+                ) AS repreq ON repo.id = repreq.repo_id
+            WHERE
+                project.project_key NOT LIKE '~%'
+                AND ( pr.closed_timestamp is NULL OR (pr.closed_timestamp >= ($1 - interval '1 minute') and pr.closed_timestamp < $1 ) )
+            GROUP BY
+                pr.id,
+                pr.pr_state,
+                repo.id,
+                project.project_key,
+                repreq.req_arr
+            HAVING NOT (repreq.req_arr <@ array_agg( DISTINCT
+				CASE
+					WHEN insrep."REPORT_KEY" in ('sast','sabug','savul','sasmell','smoke','ci','codecoverage','snyk') THEN insrep."REPORT_KEY"
+					ELSE 'other'::VARCHAR
+				END ))
+        ) AS partquery
+        GROUP BY
+          project_key,
+          pr_state
+        UNION
+        -- part 2: count pr(s) without any report
+        SELECT count(pr.id) AS cnt, pr.pr_state, project.project_key
+        FROM
+          "AO_2AD648_INSIGHT_REPORT" AS insrep
+          RIGHT JOIN sta_pull_request AS pr ON insrep."COMMIT_ID" = pr.from_hash
+          INNER JOIN repository AS repo ON pr.to_repository_id = repo.id
+          INNER JOIN project AS project ON repo.project_id = project.id
+        WHERE
+          insrep."REPORT_KEY" is null
+          AND repo.id = ANY ( select "RESOURCE_ID"
+                from "AO_2AD648_MERGE_CHECK"
+                where "RESOURCE_ID" = repo.id
+                AND "REPORT_KEY" in ('sast','sabug','savul','sasmell','smoke','ci','codecoverage','snyk') )
+          AND ( pr.closed_timestamp is null OR (pr.closed_timestamp >= ($1 - interval '1 minute') and pr.closed_timestamp < $1 ) )
+        GROUP BY project.project_key,pr.pr_state
+        ) AS uniontable
+        GROUP BY project_key,pr_state`,
 	}
-	//m := metrics.SetupMetrics()
-	//
-	//err = metrics.ExportPRMissingReport(ctx, m, db, StmtSlice["pr_missing_report_query"], "date_trunc('minute',current_timestamp AT TIME ZONE 'UTC')")
-	//if err != nil {
-	//	return
-	//}
-	//var pool = db.Pool
-	//defer pool.Close()
-	//row := pool.QueryRow(context.Background(), "select 1")
-	//var result int
-	//if err := row.Scan(&result); err != nil {
-	//	fmt.Println("执行sql测试失败：%w", err)
-	//	return
-	//}
 
-	//fmt.Println("测试 SQL 执行成功，结果为:", result)
+	fmt.Println(regSQLtest["check_summary_query(text[])"])
 }

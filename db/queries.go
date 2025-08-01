@@ -7,8 +7,15 @@ import (
 	"strings"
 )
 
-// 注册pgsql语句
-func RegisterPreparedSQLs(ctx context.Context, db *sql.DB, firstCall bool) error {
+func ParseSqlDict(s string) (sqlNameAndParam, sqlText string) {
+	sqlNameMap := map[string]string{
+		"check_summary_query":     "check_summary_query(text[])",
+		"closed_pr_report_query":  "closed_pr_report_query(timestamp)",
+		"open_pr_report_query":    "open_pr_report_query",
+		"result_report_query":     "result_report_query(text)",
+		"pr_counts_query":         "pr_counts_query(timestamp)",
+		"pr_missing_report_query": "pr_missing_report_query(timestamp)",
+	}
 	regSQLs := map[string]string{
 		"check_summary_query(text[])": `
 			SELECT
@@ -200,24 +207,29 @@ func RegisterPreparedSQLs(ctx context.Context, db *sql.DB, firstCall bool) error
         GROUP BY project_key,pr_state`,
 	}
 
-	for proto, sqlText := range regSQLs {
-		name, param := parseSQLName(proto) // 把sql名称和参数拆分开来
+	sqlNameAndParam = sqlNameMap[s]
+	sqlText = regSQLs[sqlNameAndParam]
+	return sqlNameAndParam, sqlText
+}
 
-		if !firstCall {
-			// 如果不是首次执行sql，sql已经注册过prepare，这时需要先释放prepare过的sql，重新进行prepare
-			_, err := db.ExecContext(ctx, "DEALLOCATE "+name)
-			if err != nil {
-				log.Printf("释放之前 prepare 过的 SQL 时出现错误 %s: %v", name, err)
-			}
-		}
+// 注册pgsql语句
+func RegisterPreparedSQLs(ctx context.Context, sqlName string, db *sql.DB, firstCall bool) error {
+	proto, sqlText := ParseSqlDict(sqlName)
+	name, param := parseSQLName(proto) // 把sql名称和参数拆分开来
 
-		// 拼接完整的pgsql prepare语句
-		prepareStmt := "PREPARE " + name + param + " AS " + sqlText
-		_, err := db.ExecContext(ctx, prepareStmt)
+	if !firstCall {
+		// 如果不是首次执行sql，sql已经注册过prepare，这时需要先释放prepare过的sql，重新进行prepare
+		_, err := db.ExecContext(ctx, "DEALLOCATE "+name)
 		if err != nil {
-			log.Printf("preparing SQL 时出错 %s: %v", name, err)
+			log.Printf("释放之前 prepare 过的 SQL 时出现错误 %s: %v", name, err)
 		}
-		//fmt.Println(prepareStmt)
+	}
+
+	// 拼接完整的pgsql prepare语句
+	prepareStmt := "PREPARE " + name + param + " AS " + sqlText
+	_, err := db.ExecContext(ctx, prepareStmt)
+	if err != nil {
+		log.Printf("preparing SQL 时出错 %s: %v", name, err)
 	}
 
 	return nil
