@@ -3,8 +3,11 @@ package metrics
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"fmt"
 	"log"
 	"strconv"
+	"strings"
 )
 
 var allProjects map[string]struct{} = make(map[string]struct{})
@@ -86,6 +89,40 @@ func GetAllProjects(ctx context.Context, db *sql.DB, knownProjects map[string]st
 	}
 
 	return allProjects, nil
+}
+
+// 将从sql中获取的原始数据解析为代码覆盖率
+func ExtractCodeCoverage(rawData string) string {
+	if rawData == "" {
+		return ""
+	}
+	/*
+		获取第一个 code coverage 值
+		    元素类型：'[[{dict1}, {dict2}], [{dict3}, ...]]'
+	*/
+
+	var parsedData [][]map[string]interface{}
+	if err := json.Unmarshal([]byte(rawData), &parsedData); err != nil {
+		return ""
+	}
+
+	for _, subArray := range parsedData {
+		for _, item := range subArray {
+			if title, ok := item["title"].(string); ok && title == "Code Coverage" {
+				if value, ok := item["value"]; ok {
+					switch v := value.(type) {
+					case float64:
+						return fmt.Sprintf("%.2f", v)
+					case int:
+						return strconv.Itoa(v)
+					}
+				}
+				break
+			}
+		}
+	}
+
+	return ""
 }
 
 func ExportPRMissingReport(ctx context.Context, m *Metrics, db *sql.DB) {
@@ -203,19 +240,57 @@ func ExportPRNum(ctx context.Context, m *Metrics, db *sql.DB) {
 		m.OneClickPRNum.WithLabelValues("declined", project).Set(float64(counts[2]))
 	}
 
-	return
 }
 
-func ExportOpenPRReport(m *Metrics) {
-	defer wg.Done()
-	m.OneClickOpenPRReport.WithLabelValues(
-		"stash_repo",
-		"pr_no",
-		"valid_appearance",
-		"present_reports",
-		"project",
-		"code_coverage",
-	).Set(float64(1))
+func ExportOpenPRReport(ctx context.Context, m *Metrics, db *sql.DB) {
+	m.OneClickOpenPRReport.Reset()
+	pgsql := "EXECUTE open_pr_report_query"
+	rows, err := db.QueryContext(ctx, pgsql)
+	if err != nil {
+		log.Printf("ExportOpenPRReport QueryContext 过程中发生错误: %v", err)
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var stashRepo, prNo, project string
+		var presentReportsNullString, coverageRaw sql.NullString
+		if err = rows.Scan(&stashRepo, &prNo, &presentReportsNullString, &project, &coverageRaw); err != nil {
+			log.Printf("ExportOpenPRReport scan 过程中发生错误: %v", err)
+			continue
+		}
+
+		validAppearance := 0 // 统计经过检验的报告的数量
+		presentReports := ""
+		if presentReportsNullString.Valid {
+			presentReports = presentReportsNullString.String
+		}
+
+		if presentReports != "" {
+			validAppearance = strings.Count(presentReports, ",") + 1
+		}
+
+		var codeCoverage string // 如果原始数据为null，codeCoverage直接返回为空
+		if !coverageRaw.Valid {
+			codeCoverage = ""
+		} else {
+			codeCoverage = ExtractCodeCoverage(coverageRaw.String)
+		}
+
+		m.OneClickOpenPRReport.WithLabelValues(
+			stashRepo,
+			prNo,
+			strconv.Itoa(validAppearance),
+			presentReports,
+			project,
+			codeCoverage).Set(float64(1))
+	}
+
+	if err := rows.Err(); err != nil {
+		log.Printf("ExportOpenPRReport rows.Err 过程中发生错误: %v", err)
+		return
+	}
+
 }
 
 func ExportClosedPRReport(m *Metrics) {
