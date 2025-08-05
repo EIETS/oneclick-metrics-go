@@ -10,6 +10,8 @@ import (
 
 func CollectMetrics(ctx context.Context, m *Metrics, db *sql.DB, wg *sync.WaitGroup) {
 	ticker := time.NewTicker(3 * time.Second)
+
+	// PRMissingReport
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -21,6 +23,7 @@ func CollectMetrics(ctx context.Context, m *Metrics, db *sql.DB, wg *sync.WaitGr
 
 	}()
 
+	// PRNum
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -31,6 +34,7 @@ func CollectMetrics(ctx context.Context, m *Metrics, db *sql.DB, wg *sync.WaitGr
 		}
 	}()
 
+	// OpenPRReport
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -38,6 +42,28 @@ func CollectMetrics(ctx context.Context, m *Metrics, db *sql.DB, wg *sync.WaitGr
 		for range ticker.C {
 			_ = dbase.RegisterPreparedSQLs(ctx, "open_pr_report_query", db, false)
 			ExportOpenPRReport(ctx, m, db)
+		}
+	}()
+
+	// ClosedPRReport
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_ = dbase.RegisterPreparedSQLs(ctx, "closed_pr_report_query", db, true)
+		for range ticker.C {
+			_ = dbase.RegisterPreparedSQLs(ctx, "closed_pr_report_query", db, false)
+			ExportClosedPRReport(ctx, m, db)
+		}
+	}()
+
+	// ResultReport
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_ = dbase.RegisterPreparedSQLs(ctx, "result_report_query", db, true)
+		for range ticker.C {
+			_ = dbase.RegisterPreparedSQLs(ctx, "result_report_query", db, false)
+			ExportResultReport(ctx, m, db)
 		}
 	}()
 

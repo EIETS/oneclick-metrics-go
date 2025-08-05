@@ -29,20 +29,20 @@ type PrNum struct {
 }
 
 type OpenPrReport struct {
-	StashRepo     string
-	PrNo          string
-	PresentReport string
-	Project       string
-	ReportData    string
+	StashRepo      string
+	PrNo           string
+	PresentReports sql.NullString
+	Project        string
+	ReportData     sql.NullString
 }
 
 type ClosedPrReport = OpenPrReport
 
 type ResultReport struct {
 	Report  string
-	Status  string
+	Status  sql.NullInt64
 	Project string
-	Count   string
+	Count   int
 }
 
 type CheckSummary struct {
@@ -253,17 +253,16 @@ func ExportOpenPRReport(ctx context.Context, m *Metrics, db *sql.DB) {
 	defer rows.Close()
 
 	for rows.Next() {
-		var stashRepo, prNo, project string
-		var presentReportsNullString, coverageRaw sql.NullString
-		if err = rows.Scan(&stashRepo, &prNo, &presentReportsNullString, &project, &coverageRaw); err != nil {
+		var r OpenPrReport
+		if err = rows.Scan(&r.StashRepo, &r.PrNo, &r.PresentReports, &r.Project, &r.ReportData); err != nil {
 			log.Printf("ExportOpenPRReport scan 过程中发生错误: %v", err)
 			continue
 		}
 
 		validAppearance := 0 // 统计经过检验的报告的数量
 		presentReports := ""
-		if presentReportsNullString.Valid {
-			presentReports = presentReportsNullString.String
+		if r.PresentReports.Valid {
+			presentReports = r.PresentReports.String
 		}
 
 		if presentReports != "" {
@@ -271,18 +270,18 @@ func ExportOpenPRReport(ctx context.Context, m *Metrics, db *sql.DB) {
 		}
 
 		var codeCoverage string // 如果原始数据为null，codeCoverage直接返回为空
-		if !coverageRaw.Valid {
+		if !r.ReportData.Valid {
 			codeCoverage = ""
 		} else {
-			codeCoverage = ExtractCodeCoverage(coverageRaw.String)
+			codeCoverage = ExtractCodeCoverage(r.ReportData.String)
 		}
 
 		m.OneClickOpenPRReport.WithLabelValues(
-			stashRepo,
-			prNo,
+			r.StashRepo,
+			r.PrNo,
 			strconv.Itoa(validAppearance),
 			presentReports,
-			project,
+			r.Project,
 			codeCoverage).Set(float64(1))
 	}
 
@@ -293,25 +292,129 @@ func ExportOpenPRReport(ctx context.Context, m *Metrics, db *sql.DB) {
 
 }
 
-func ExportClosedPRReport(m *Metrics) {
-	defer wg.Done()
-	m.OneClickClosedPRReport.WithLabelValues(
-		"stash_repo",
-		"pr_no",
-		"valid_appearance",
-		"present_reports",
-		"project",
-		"code_coverage",
-	).Set(float64(1))
+func ExportClosedPRReport(ctx context.Context, m *Metrics, db *sql.DB) {
+	m.OneClickOpenPRReport.Reset()
+	pgsql := "EXECUTE closed_pr_report_query(date_trunc('minute',current_timestamp AT TIME ZONE 'UTC'))"
+	rows, err := db.QueryContext(ctx, pgsql)
+	if err != nil {
+		log.Printf("ExportClosedPRReport QueryContext 过程中发生错误: %v", err)
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var r ClosedPrReport
+		//var stashRepo, prNo, project string
+		//var presentReportsNullString, coverageRaw sql.NullString
+		if err = rows.Scan(&r.StashRepo, &r.PrNo, &r.PresentReports, &r.Project, &r.ReportData); err != nil {
+			log.Printf("ExportClosedPRReport scan 过程中发生错误: %v", err)
+			continue
+		}
+
+		validAppearance := 0 // 统计经过检验的报告的数量
+		presentReports := ""
+		if r.PresentReports.Valid {
+			presentReports = r.PresentReports.String
+		}
+
+		if presentReports != "" {
+			validAppearance = strings.Count(presentReports, ",") + 1
+		}
+
+		var codeCoverage string // 如果原始数据为null，codeCoverage直接返回为空
+		if !r.ReportData.Valid {
+			codeCoverage = ""
+		} else {
+			codeCoverage = ExtractCodeCoverage(r.ReportData.String)
+		}
+
+		m.OneClickOpenPRReport.WithLabelValues(
+			r.StashRepo,
+			r.PrNo,
+			strconv.Itoa(validAppearance),
+			presentReports,
+			r.Project,
+			codeCoverage).Set(float64(1))
+	}
+
+	if err := rows.Err(); err != nil {
+		log.Printf("ExportClosedPRReport rows.Err 过程中发生错误: %v", err)
+		return
+	}
 }
 
-func ExportResultReport(m *Metrics) {
-	defer wg.Done()
-	m.OneClickResultReport.WithLabelValues(
-		"report",
-		"status",
-		"project",
-	).Set(float64(1))
+func ExportResultReport(ctx context.Context, m *Metrics, db *sql.DB) {
+	allReportKeys := []string{
+		"ci", "codecoverage", "sast", "smoke", "snyk", "sabug", "sasmell", "savul",
+	}
+	// 用于收集所有项目
+	knownProjects := make(map[string]struct{})
+	reportResults := make(map[string][]ResultReport)
+
+	for _, reportKey := range allReportKeys {
+		pgsql := fmt.Sprintf("EXECUTE result_report_query('%s')", reportKey)
+		rows, err := db.QueryContext(ctx, pgsql)
+		if err != nil {
+			log.Printf("ExportResultReport 查询 %s 时发生错误: %v", reportKey, err)
+			continue
+		}
+		defer rows.Close()
+		var results []ResultReport
+		for rows.Next() {
+			var r ResultReport
+			if err = rows.Scan(&r.Report, &r.Status, &r.Project, &r.Count); err != nil {
+				log.Printf("ExportResultReport 扫描 %s 时发生错误: %v", reportKey, err)
+				continue
+			}
+			results = append(results, r)
+			knownProjects[r.Project] = struct{}{}
+		}
+		if err := rows.Err(); err != nil {
+			log.Printf("ExportResultReport rows.Err %s 时发生错误: %v", reportKey, err)
+			continue
+		}
+		reportResults[reportKey] = results
+	}
+
+	//获取所有项目
+	var err error
+	allProjects, err = GetAllProjects(ctx, db, knownProjects)
+	if err != nil {
+		log.Printf("ExportResultReport 获取所有项目时发生错误: %v", err)
+		return
+	}
+
+	m.OneClickResultReport.Reset()
+
+	for reportKey, results := range reportResults {
+		//初始化计数器
+		cntarr := make(map[string][3]int)
+		for project := range allProjects {
+			cntarr[project] = [3]int{0, 0, 0}
+		}
+
+		for _, r := range results {
+			status := 2
+			if r.Status.Valid {
+				status = int(r.Status.Int64)
+			}
+			if status >= 0 && status <= 2 {
+				arr := cntarr[r.Project]
+				arr[status] = r.Count
+				cntarr[r.Project] = arr
+			}
+		}
+
+		for project := range allProjects {
+			counts := cntarr[project]
+			total := counts[0] + counts[1]
+
+			m.OneClickResultReport.WithLabelValues(reportKey, "failure", project).Set(float64(counts[0]))
+			m.OneClickResultReport.WithLabelValues(reportKey, "success", project).Set(float64(counts[1]))
+			m.OneClickResultReport.WithLabelValues(reportKey, "total", project).Set(float64(total))
+			m.OneClickResultReport.WithLabelValues(reportKey, "notAvailable", project).Set(float64(counts[2]))
+		}
+	}
 }
 
 func ExportCheckSummary(m *Metrics) {
