@@ -213,7 +213,7 @@ func ParseSqlDict(s string) (sqlNameAndParam, sqlText string) {
 }
 
 // 注册pgsql语句
-func RegisterPreparedSQLs(ctx context.Context, sqlName string, db *sql.DB, firstCall bool) error {
+func RegisterPreparedSQLs(ctx context.Context, sqlName string, db *sql.Conn, firstCall bool) error {
 	proto, sqlText := ParseSqlDict(sqlName)
 	name, param := parseSQLName(proto) // 把sql名称和参数拆分开来
 

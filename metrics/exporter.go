@@ -52,7 +52,7 @@ type CheckSummary struct {
 }
 
 // GetAllProjects 从数据库中获取所有项目的名称
-func GetAllProjects(ctx context.Context, db *sql.DB, knownProjects map[string]struct{}) (map[string]struct{}, error) {
+func GetAllProjects(ctx context.Context, db *sql.Conn, knownProjects map[string]struct{}) (map[string]struct{}, error) {
 	// 如果缓存为空，则从数据库查询
 	if len(allProjects) == 0 {
 		query := `
@@ -125,7 +125,7 @@ func ExtractCodeCoverage(rawData string) string {
 	return ""
 }
 
-func ExportPRMissingReport(ctx context.Context, m *Metrics, db *sql.DB) {
+func ExportPRMissingReport(ctx context.Context, m *Metrics, db *sql.Conn) {
 	//defer wg.Done()
 	m.OneClickPRMissingReport.Reset()
 
@@ -183,7 +183,7 @@ func ExportPRMissingReport(ctx context.Context, m *Metrics, db *sql.DB) {
 	return
 }
 
-func ExportPRNum(ctx context.Context, m *Metrics, db *sql.DB) {
+func ExportPRNum(ctx context.Context, m *Metrics, db *sql.Conn) {
 	//defer wg.Done()
 	m.OneClickPRNum.Reset()
 	pgsql := "EXECUTE pr_counts_query(date_trunc('minute',current_timestamp AT TIME ZONE 'UTC'))"
@@ -242,7 +242,7 @@ func ExportPRNum(ctx context.Context, m *Metrics, db *sql.DB) {
 
 }
 
-func ExportOpenPRReport(ctx context.Context, m *Metrics, db *sql.DB) {
+func ExportOpenPRReport(ctx context.Context, m *Metrics, db *sql.Conn) {
 	m.OneClickOpenPRReport.Reset()
 	pgsql := "EXECUTE open_pr_report_query"
 	rows, err := db.QueryContext(ctx, pgsql)
@@ -292,7 +292,7 @@ func ExportOpenPRReport(ctx context.Context, m *Metrics, db *sql.DB) {
 
 }
 
-func ExportClosedPRReport(ctx context.Context, m *Metrics, db *sql.DB) {
+func ExportClosedPRReport(ctx context.Context, m *Metrics, db *sql.Conn) {
 	m.OneClickOpenPRReport.Reset()
 	pgsql := "EXECUTE closed_pr_report_query(date_trunc('minute',current_timestamp AT TIME ZONE 'UTC'))"
 	rows, err := db.QueryContext(ctx, pgsql)
@@ -328,7 +328,7 @@ func ExportClosedPRReport(ctx context.Context, m *Metrics, db *sql.DB) {
 			codeCoverage = ExtractCodeCoverage(r.ReportData.String)
 		}
 
-		m.OneClickOpenPRReport.WithLabelValues(
+		m.OneClickClosedPRReport.WithLabelValues(
 			r.StashRepo,
 			r.PrNo,
 			strconv.Itoa(validAppearance),
@@ -343,7 +343,7 @@ func ExportClosedPRReport(ctx context.Context, m *Metrics, db *sql.DB) {
 	}
 }
 
-func ExportResultReport(ctx context.Context, m *Metrics, db *sql.DB) {
+func ExportResultReport(ctx context.Context, m *Metrics, db *sql.Conn) {
 	allReportKeys := []string{
 		"ci", "codecoverage", "sast", "smoke", "snyk", "sabug", "sasmell", "savul",
 	}
