@@ -36,11 +36,4 @@ func main() {
 		metrics.CollectMetrics(ctx, m, dB, &wg)
 	}
 
-	//// 定时采集指标
-	//ticker := time.NewTicker(15 * time.Second)
-	//for range ticker.C {
-	//	wg := sync.WaitGroup{}
-	//	log.Println("Collecting metrics...")
-	//	metrics.CollectMetrics(ctx, m, dB, &wg)
-	//}
 }

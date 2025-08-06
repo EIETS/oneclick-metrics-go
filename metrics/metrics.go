@@ -75,21 +75,3 @@ func RegisterMetrics(m *Metrics) {
 	)
 	log.Println("Registered Prometheus metrics")
 }
-
-// 下面的是示例代码
-
-var dummyGauge = prometheus.NewGaugeVec(
-	prometheus.GaugeOpts{
-		Name: "oneclick_dummy_metric",
-		Help: "A dummy metric for testing",
-	},
-	[]string{"label"},
-)
-
-func RegisterDummyMetrics() {
-	prometheus.MustRegister(dummyGauge)
-}
-
-func CollectDummyMetric() {
-	dummyGauge.WithLabelValues("test").Set(float64(1))
-}
