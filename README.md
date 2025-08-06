@@ -120,7 +120,7 @@ go get github.com/prometheus/client_golang/prometheus/promhttp
 #### 🎯 目标
 - Prometheus 能拉取多个结构化指标（带标签）
 
-### ✅ 阶段 4：实现 SQL 查询与数据采集逻辑（3~4 天）
+### ✅ 阶段 4：实现 SQL 查询与数据采集逻辑（3~4 天）（已完成）
 #### 📌 任务
 - 将 Python 中的 SQL 查询迁移为 Go 字符串常量
 - 在 db/queries.go 中封装每个查询函数
