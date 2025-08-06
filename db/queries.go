@@ -3,8 +3,10 @@ package db
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"log"
 	"strings"
+	"time"
 )
 
 func ParseSqlDict(s string) (sqlNameAndParam, sqlText string) {
@@ -210,6 +212,24 @@ func ParseSqlDict(s string) (sqlNameAndParam, sqlText string) {
 	sqlNameAndParam = sqlNameMap[s]
 	sqlText = regSQLs[sqlNameAndParam]
 	return sqlNameAndParam, sqlText
+}
+
+// 带重连机制的RegisterPreparedSQLs
+func RegisterPreparedSQLsWithRetry(ctx context.Context, queryKey string, conn *sql.Conn, isInit bool) error {
+	const maxRetries = 3
+	var err error
+
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		err = RegisterPreparedSQLs(ctx, queryKey, conn, isInit)
+		if err == nil {
+			return nil
+		}
+
+		log.Printf("RegisterPreparedSQLs 失败 [%s]（第 %d 次尝试）: %v", queryKey, attempt, err)
+		time.Sleep(time.Duration(attempt) * time.Second) // 指数退避策略可选
+	}
+
+	return fmt.Errorf("RegisterPreparedSQLs 最终失败 [%s]: %w", queryKey, err)
 }
 
 // 注册pgsql语句

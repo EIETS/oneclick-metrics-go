@@ -47,7 +47,7 @@ type ResultReport struct {
 
 type CheckSummary struct {
 	StashRepo     string
-	PresrntReport string
+	PresrntReport sql.NullString
 	Project       string
 }
 
@@ -417,13 +417,62 @@ func ExportResultReport(ctx context.Context, m *Metrics, db *sql.Conn) {
 	}
 }
 
-func ExportCheckSummary(m *Metrics) {
-	defer wg.Done()
-	m.OneClickCheckSummary.WithLabelValues(
-		"stash_repo",
-		"valid_appearance",
-		"enabled_checks",
-		"project",
-	).Set(float64(1))
+func ExportCheckSummary(ctx context.Context, m *Metrics, db *sql.Conn) {
+
+	// 获取所有项目
+	allProjects, err := GetAllProjects(ctx, db, map[string]struct{}{})
+	if err != nil {
+		log.Printf("ExportCheckSummary 获取项目失败: %v", err)
+		return
+	}
+
+	// 构造项目列表字符串
+	var projectList []string
+	for project := range allProjects {
+		projectList = append(projectList, project)
+	}
+	projectListStr := strings.Join(projectList, ",")
+
+	// 执行查询
+	query := fmt.Sprintf("EXECUTE check_summary_query('{%s}')", projectListStr)
+	rows, err := db.QueryContext(ctx, query)
+	if err != nil {
+		log.Printf("ExportCheckSummary 查询失败: %v", err)
+		return
+	}
+	defer rows.Close()
+
+	m.OneClickCheckSummary.Reset()
+
+	for rows.Next() {
+		var r CheckSummary
+		err = rows.Scan(&r.StashRepo, &r.PresrntReport, &r.Project)
+		if err != nil {
+			log.Printf("ExportCheckSummary 扫描失败: %v", err)
+			continue
+		}
+
+		checkSummaryString := ""
+		if r.PresrntReport.Valid {
+			checkSummaryString = r.PresrntReport.String
+		}
+
+		validAppearance := 0
+		if checkSummaryString != "" {
+			validAppearance = strings.Count(checkSummaryString, ",") + 1
+		}
+
+		m.OneClickCheckSummary.WithLabelValues(
+			r.StashRepo,
+			strconv.Itoa(validAppearance),
+			checkSummaryString,
+			r.Project,
+		).Set(float64(1))
+	}
+
+	if err = rows.Err(); err != nil {
+		log.Printf("ExportCheckSummary rows.Err过程中发生错误: %v", err)
+		return
+	}
 
 }
