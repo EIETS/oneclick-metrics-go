@@ -12,10 +12,6 @@ import (
 
 var allProjects map[string]struct{} = make(map[string]struct{})
 
-type FirstCall struct {
-	flag bool `default:"true"`
-}
-
 type PrMissingReport struct {
 	Count   string
 	State   string
@@ -126,7 +122,6 @@ func ExtractCodeCoverage(rawData string) string {
 }
 
 func ExportPRMissingReport(ctx context.Context, m *Metrics, db *sql.Conn) {
-	//defer wg.Done()
 	m.OneClickPRMissingReport.Reset()
 
 	pgsql := "EXECUTE pr_missing_report_query(date_trunc('minute',current_timestamp AT TIME ZONE 'UTC'));"
@@ -184,7 +179,6 @@ func ExportPRMissingReport(ctx context.Context, m *Metrics, db *sql.Conn) {
 }
 
 func ExportPRNum(ctx context.Context, m *Metrics, db *sql.Conn) {
-	//defer wg.Done()
 	m.OneClickPRNum.Reset()
 	pgsql := "EXECUTE pr_counts_query(date_trunc('minute',current_timestamp AT TIME ZONE 'UTC'))"
 	rows, err := db.QueryContext(ctx, pgsql)
@@ -304,8 +298,6 @@ func ExportClosedPRReport(ctx context.Context, m *Metrics, db *sql.Conn) {
 
 	for rows.Next() {
 		var r ClosedPrReport
-		//var stashRepo, prNo, project string
-		//var presentReportsNullString, coverageRaw sql.NullString
 		if err = rows.Scan(&r.StashRepo, &r.PrNo, &r.PresentReports, &r.Project, &r.ReportData); err != nil {
 			log.Printf("ExportClosedPRReport scan 过程中发生错误: %v", err)
 			continue
