@@ -38,12 +38,15 @@ func CollectMetrics(ctx0 context.Context, m *Metrics, db0 *sql.DB, wg *sync.Wait
 			continue
 		}
 		conns[i] = conn
-		defer conn.Close()
 
 		// 初次 prepare
 		if err := dbase.RegisterPreparedSQLsWithRetry(ctx0, task.QueryKey, conn, true); err != nil {
 			log.Printf("初次 prepare 失败 [%s]: %v", task.Name, err)
 		}
+	}
+
+	for _, conn := range conns {
+		defer conn.Close()
 	}
 
 	for range ticker.C {
@@ -56,7 +59,7 @@ func CollectMetrics(ctx0 context.Context, m *Metrics, db0 *sql.DB, wg *sync.Wait
 			wg.Add(1)
 			go func(i int, task MetricTask) {
 				defer wg.Done()
-				start := time.Now()
+				//start := time.Now()
 
 				// 检查连接是否有效
 				if err := conns[i].PingContext(ctx0); err != nil {
@@ -71,7 +74,7 @@ func CollectMetrics(ctx0 context.Context, m *Metrics, db0 *sql.DB, wg *sync.Wait
 				}
 
 				task.ExportFn(ctx0, m, conns[i])
-				log.Printf("%s 执行耗时: %v", task.Name, time.Since(start))
+				//log.Printf("%s 执行耗时: %v", task.Name, time.Since(start))
 			}(i, task)
 		}
 		wg.Wait() // 等待所有任务完成后再进入下一轮 tick

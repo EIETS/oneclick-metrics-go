@@ -8,9 +8,13 @@ import (
 	"log"
 	"strconv"
 	"strings"
+	"sync"
 )
 
-var allProjects map[string]struct{} = make(map[string]struct{})
+var (
+	allProjects     map[string]struct{} = make(map[string]struct{})
+	allProjectsLock sync.Mutex
+)
 
 type PrMissingReport struct {
 	Count   string
@@ -49,6 +53,8 @@ type CheckSummary struct {
 
 // GetAllProjects 从数据库中获取所有项目的名称
 func GetAllProjects(ctx context.Context, db *sql.Conn, knownProjects map[string]struct{}) (map[string]struct{}, error) {
+	allProjectsLock.Lock()
+	defer allProjectsLock.Unlock()
 	// 如果缓存为空，则从数据库查询
 	if len(allProjects) == 0 {
 		query := `
@@ -84,7 +90,13 @@ func GetAllProjects(ctx context.Context, db *sql.Conn, knownProjects map[string]
 		allProjects[k] = struct{}{}
 	}
 
-	return allProjects, nil
+	// 返回副本，避免外部 goroutine 访问共享 map
+	result := make(map[string]struct{}, len(allProjects))
+	for k := range allProjects {
+		result[k] = struct{}{}
+	}
+
+	return result, nil
 }
 
 // 将从sql中获取的原始数据解析为代码覆盖率
@@ -147,7 +159,7 @@ func ExportPRMissingReport(ctx context.Context, m *Metrics, db *sql.Conn) {
 		return
 	}
 
-	allProjects, err = GetAllProjects(ctx, db, knowProjects)
+	allProjects, err := GetAllProjects(ctx, db, knowProjects)
 	if err != nil {
 		log.Printf("ExportPRMissingReport GetAllProjects 过程中发生错误: %v", err)
 		return
@@ -206,7 +218,7 @@ func ExportPRNum(ctx context.Context, m *Metrics, db *sql.Conn) {
 	}
 
 	// 获取所有项目
-	allProjects, err = GetAllProjects(ctx, db, knowProjects)
+	allProjects, err := GetAllProjects(ctx, db, knowProjects)
 	if err != nil {
 		log.Printf("ExportPRNum GetAllProjects 过程中发生错误: %v", err)
 		return
@@ -370,7 +382,7 @@ func ExportResultReport(ctx context.Context, m *Metrics, db *sql.Conn) {
 
 	//获取所有项目
 	var err error
-	allProjects, err = GetAllProjects(ctx, db, knownProjects)
+	allProjects, err := GetAllProjects(ctx, db, knownProjects)
 	if err != nil {
 		log.Printf("ExportResultReport 获取所有项目时发生错误: %v", err)
 		return
