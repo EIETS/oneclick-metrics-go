@@ -71,6 +71,10 @@ func CollectMetrics(ctx0 context.Context, m *Metrics, db0 *sql.DB, wg *sync.Wait
 					}
 					conns[i].Close()
 					conns[i] = newConn
+					// 重新进行prepare
+					if err := dbase.RegisterPreparedSQLsWithRetry(ctx0, task.QueryKey, conns[i], true); err != nil {
+						log.Printf("初次 prepare 失败 [%s]: %v", task.Name, err)
+					}
 				}
 
 				task.ExportFn(ctx0, m, conns[i])
