@@ -19,7 +19,7 @@ func main() {
 		log.Fatal(http.ListenAndServe(":8000", nil))
 	}()
 
-	// 注册指标
+	// 指标注册
 	m := metrics.SetupMetrics()
 	metrics.RegisterMetrics(m)
 
