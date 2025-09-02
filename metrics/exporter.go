@@ -5,7 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"log"
+	"go.uber.org/zap"
+	"oneclick-metrics-go/global"
 	"strconv"
 	"strings"
 	"sync"
@@ -66,7 +67,7 @@ func GetAllProjects(ctx context.Context, db *sql.Conn, knownProjects map[string]
         `
 		rows, err := db.QueryContext(ctx, query)
 		if err != nil {
-			log.Printf("获取项目名称过程中有误: %v", err)
+			zap.S().Errorf("获取项目名称过程中有误: %v", err)
 			return nil, err
 		}
 		defer rows.Close()
@@ -74,7 +75,7 @@ func GetAllProjects(ctx context.Context, db *sql.Conn, knownProjects map[string]
 		for rows.Next() {
 			var projectKey string
 			if err = rows.Scan(&projectKey); err != nil {
-				log.Printf("浏览项目key时出错: %v", err)
+				zap.S().Errorf("浏览项目key时出错: %v", err)
 				continue
 			}
 			allProjects[projectKey] = struct{}{}
@@ -136,10 +137,10 @@ func ExtractCodeCoverage(rawData string) string {
 func ExportPRMissingReport(ctx context.Context, m *Metrics, db *sql.Conn) {
 	m.OneClickPRMissingReport.Reset()
 
-	pgsql := "EXECUTE pr_missing_report_query(date_trunc('minute',current_timestamp AT TIME ZONE 'UTC'));"
+	pgsql := fmt.Sprintf("EXECUTE pr_missing_report_query(date_trunc('minute',current_timestamp AT TIME ZONE '%s'));", global.ServerConfig.Timezone)
 	rows, err := db.QueryContext(ctx, pgsql)
 	if err != nil {
-		log.Printf("ExportPRMissingReport QueryContext 过程中发生错误: %v", err)
+		zap.S().Errorf("ExportPRMissingReport QueryContext 过程中发生错误: %v", err)
 		return
 	}
 	var rawResults []PrMissingReport          // 获取本次sql查询的结果
@@ -147,7 +148,7 @@ func ExportPRMissingReport(ctx context.Context, m *Metrics, db *sql.Conn) {
 	for rows.Next() {
 		var r PrMissingReport
 		if err = rows.Scan(&r.Count, &r.State, &r.Project); err != nil {
-			log.Printf("ExportPRMissingReport scan 过程中发生错误: %v", err)
+			zap.S().Errorf("ExportPRMissingReport scan 过程中发生错误: %v", err)
 			continue
 		}
 		rawResults = append(rawResults, r)
@@ -155,13 +156,13 @@ func ExportPRMissingReport(ctx context.Context, m *Metrics, db *sql.Conn) {
 	}
 
 	if err = rows.Err(); err != nil {
-		log.Printf("ExportPRMissingReport Err 过程中发生错误: %v", err)
+		zap.S().Errorf("ExportPRMissingReport Err 过程中发生错误: %v", err)
 		return
 	}
 
 	allProjects, err := GetAllProjects(ctx, db, knowProjects)
 	if err != nil {
-		log.Printf("ExportPRMissingReport GetAllProjects 过程中发生错误: %v", err)
+		zap.S().Errorf("ExportPRMissingReport GetAllProjects 过程中发生错误: %v", err)
 		return
 	}
 
@@ -192,10 +193,10 @@ func ExportPRMissingReport(ctx context.Context, m *Metrics, db *sql.Conn) {
 
 func ExportPRNum(ctx context.Context, m *Metrics, db *sql.Conn) {
 	m.OneClickPRNum.Reset()
-	pgsql := "EXECUTE pr_counts_query(date_trunc('minute',current_timestamp AT TIME ZONE 'UTC'))"
+	pgsql := fmt.Sprintf("EXECUTE pr_counts_query(date_trunc('minute',current_timestamp AT TIME ZONE '%s'))", global.ServerConfig.Timezone)
 	rows, err := db.QueryContext(ctx, pgsql)
 	if err != nil {
-		log.Printf("ExportPRNum QueryContext 过程中发生错误: %v", err)
+		zap.S().Errorf("ExportPRNum QueryContext 过程中发生错误: %v", err)
 		return
 	}
 	defer rows.Close()
@@ -206,21 +207,21 @@ func ExportPRNum(ctx context.Context, m *Metrics, db *sql.Conn) {
 	for rows.Next() {
 		var r PrNum
 		if err = rows.Scan(&r.State, &r.Project, &r.Count); err != nil {
-			log.Printf("ExportPRNum scan 过程中发生错误: %v", err)
+			zap.S().Errorf("ExportPRNum scan 过程中发生错误: %v", err)
 			continue
 		}
 		rawResults = append(rawResults, r)
 		knowProjects[r.Project] = struct{}{}
 	}
 	if err = rows.Err(); err != nil {
-		log.Printf("ExportPRNum Err 过程中发生错误: %v", err)
+		zap.S().Errorf("ExportPRNum Err 过程中发生错误: %v", err)
 		return
 	}
 
 	// 获取所有项目
 	allProjects, err := GetAllProjects(ctx, db, knowProjects)
 	if err != nil {
-		log.Printf("ExportPRNum GetAllProjects 过程中发生错误: %v", err)
+		zap.S().Errorf("ExportPRNum GetAllProjects 过程中发生错误: %v", err)
 		return
 	}
 
@@ -253,7 +254,7 @@ func ExportOpenPRReport(ctx context.Context, m *Metrics, db *sql.Conn) {
 	pgsql := "EXECUTE open_pr_report_query"
 	rows, err := db.QueryContext(ctx, pgsql)
 	if err != nil {
-		log.Printf("ExportOpenPRReport QueryContext 过程中发生错误: %v", err)
+		zap.S().Errorf("ExportOpenPRReport QueryContext 过程中发生错误: %v", err)
 		return
 	}
 	defer rows.Close()
@@ -261,7 +262,7 @@ func ExportOpenPRReport(ctx context.Context, m *Metrics, db *sql.Conn) {
 	for rows.Next() {
 		var r OpenPrReport
 		if err = rows.Scan(&r.StashRepo, &r.PrNo, &r.PresentReports, &r.Project, &r.ReportData); err != nil {
-			log.Printf("ExportOpenPRReport scan 过程中发生错误: %v", err)
+			zap.S().Errorf("ExportOpenPRReport scan 过程中发生错误: %v", err)
 			continue
 		}
 
@@ -292,7 +293,7 @@ func ExportOpenPRReport(ctx context.Context, m *Metrics, db *sql.Conn) {
 	}
 
 	if err := rows.Err(); err != nil {
-		log.Printf("ExportOpenPRReport rows.Err 过程中发生错误: %v", err)
+		zap.S().Errorf("ExportOpenPRReport rows.Err 过程中发生错误: %v", err)
 		return
 	}
 
@@ -300,10 +301,10 @@ func ExportOpenPRReport(ctx context.Context, m *Metrics, db *sql.Conn) {
 
 func ExportClosedPRReport(ctx context.Context, m *Metrics, db *sql.Conn) {
 	m.OneClickOpenPRReport.Reset()
-	pgsql := "EXECUTE closed_pr_report_query(date_trunc('minute',current_timestamp AT TIME ZONE 'UTC'))"
+	pgsql := fmt.Sprintf("EXECUTE closed_pr_report_query(date_trunc('minute',current_timestamp AT TIME ZONE '%s'))", global.ServerConfig.Timezone)
 	rows, err := db.QueryContext(ctx, pgsql)
 	if err != nil {
-		log.Printf("ExportClosedPRReport QueryContext 过程中发生错误: %v", err)
+		zap.S().Errorf("ExportClosedPRReport QueryContext 过程中发生错误: %v", err)
 		return
 	}
 	defer rows.Close()
@@ -311,7 +312,7 @@ func ExportClosedPRReport(ctx context.Context, m *Metrics, db *sql.Conn) {
 	for rows.Next() {
 		var r ClosedPrReport
 		if err = rows.Scan(&r.StashRepo, &r.PrNo, &r.PresentReports, &r.Project, &r.ReportData); err != nil {
-			log.Printf("ExportClosedPRReport scan 过程中发生错误: %v", err)
+			zap.S().Errorf("ExportClosedPRReport scan 过程中发生错误: %v", err)
 			continue
 		}
 
@@ -342,7 +343,7 @@ func ExportClosedPRReport(ctx context.Context, m *Metrics, db *sql.Conn) {
 	}
 
 	if err := rows.Err(); err != nil {
-		log.Printf("ExportClosedPRReport rows.Err 过程中发生错误: %v", err)
+		zap.S().Errorf("ExportClosedPRReport rows.Err 过程中发生错误: %v", err)
 		return
 	}
 }
@@ -359,7 +360,7 @@ func ExportResultReport(ctx context.Context, m *Metrics, db *sql.Conn) {
 		pgsql := fmt.Sprintf("EXECUTE result_report_query('%s')", reportKey)
 		rows, err := db.QueryContext(ctx, pgsql)
 		if err != nil {
-			log.Printf("ExportResultReport 查询 %s 时发生错误: %v", reportKey, err)
+			zap.S().Errorf("ExportResultReport 查询 %s 时发生错误: %v", reportKey, err)
 			continue
 		}
 		defer rows.Close()
@@ -367,14 +368,14 @@ func ExportResultReport(ctx context.Context, m *Metrics, db *sql.Conn) {
 		for rows.Next() {
 			var r ResultReport
 			if err = rows.Scan(&r.Report, &r.Status, &r.Project, &r.Count); err != nil {
-				log.Printf("ExportResultReport 扫描 %s 时发生错误: %v", reportKey, err)
+				zap.S().Errorf("ExportResultReport 扫描 %s 时发生错误: %v", reportKey, err)
 				continue
 			}
 			results = append(results, r)
 			knownProjects[r.Project] = struct{}{}
 		}
 		if err := rows.Err(); err != nil {
-			log.Printf("ExportResultReport rows.Err %s 时发生错误: %v", reportKey, err)
+			zap.S().Errorf("ExportResultReport rows.Err %s 时发生错误: %v", reportKey, err)
 			continue
 		}
 		reportResults[reportKey] = results
@@ -384,7 +385,7 @@ func ExportResultReport(ctx context.Context, m *Metrics, db *sql.Conn) {
 	var err error
 	allProjects, err := GetAllProjects(ctx, db, knownProjects)
 	if err != nil {
-		log.Printf("ExportResultReport 获取所有项目时发生错误: %v", err)
+		zap.S().Errorf("ExportResultReport 获取所有项目时发生错误: %v", err)
 		return
 	}
 
@@ -426,7 +427,7 @@ func ExportCheckSummary(ctx context.Context, m *Metrics, db *sql.Conn) {
 	// 获取所有项目
 	allProjects, err := GetAllProjects(ctx, db, map[string]struct{}{})
 	if err != nil {
-		log.Printf("ExportCheckSummary 获取项目失败: %v", err)
+		zap.S().Errorf("ExportCheckSummary 获取项目失败: %v", err)
 		return
 	}
 
@@ -441,7 +442,7 @@ func ExportCheckSummary(ctx context.Context, m *Metrics, db *sql.Conn) {
 	query := fmt.Sprintf("EXECUTE check_summary_query('{%s}')", projectListStr)
 	rows, err := db.QueryContext(ctx, query)
 	if err != nil {
-		log.Printf("ExportCheckSummary 查询失败: %v", err)
+		zap.S().Errorf("ExportCheckSummary 查询失败: %v", err)
 		return
 	}
 	defer rows.Close()
@@ -452,7 +453,7 @@ func ExportCheckSummary(ctx context.Context, m *Metrics, db *sql.Conn) {
 		var r CheckSummary
 		err = rows.Scan(&r.StashRepo, &r.PresrntReport, &r.Project)
 		if err != nil {
-			log.Printf("ExportCheckSummary 扫描失败: %v", err)
+			zap.S().Errorf("ExportCheckSummary 扫描失败: %v", err)
 			continue
 		}
 
@@ -475,7 +476,7 @@ func ExportCheckSummary(ctx context.Context, m *Metrics, db *sql.Conn) {
 	}
 
 	if err = rows.Err(); err != nil {
-		log.Printf("ExportCheckSummary rows.Err过程中发生错误: %v", err)
+		zap.S().Errorf("ExportCheckSummary rows.Err过程中发生错误: %v", err)
 		return
 	}
 

@@ -1,0 +1,13 @@
+host: 127.0.0.1
+port: 8000
+database:
+  driver: 'postgres'
+  host: pln-pg02.calix.local
+  port: 5433
+  user: stashreadonly
+  password: gRgsdf67sFGry
+  dbname: bitbucket
+timezone: 'UTC'
+interval: 15
+log:
+  level: info

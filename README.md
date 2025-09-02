@@ -20,8 +20,7 @@ go get github.com/prometheus/client_golang/prometheus
 go get github.com/prometheus/client_golang/prometheus/promhttp
 ```
 
-## ⚙️ 环境变量说明
-你可以通过设置以下环境变量来配置数据库连接：
+## ⚙️ 数据库连接
 
 DATABASE_URL：PostgreSQL 连接字符串，例如：
 ```url
@@ -133,9 +132,9 @@ go get github.com/prometheus/client_golang/prometheus/promhttp
 #### 🎯 目标
 - 每类指标都能从数据库中获取真实数据并更新 Prometheus 指标
 
-### ✅ 阶段 5：配置与参数支持（1 天）
+### ✅ 阶段 5：配置与参数支持（1 天）（已完成）
 #### 📌 任务
-- 使用 flag 或 viper 支持命令行参数或配置文件
+- 使用  viper 支持配置文件
 - 支持设置：
   - 数据库连接信息
   - 拉取间隔
@@ -144,9 +143,9 @@ go get github.com/prometheus/client_golang/prometheus/promhttp
 #### 🎯 目标
 - 项目可配置，适配不同部署环境
 
-### ✅ 阶段 6：日志与错误处理（1 天）
+### ✅ 阶段 6：日志与错误处理（1 天）（完成）
 #### 📌 任务
-- 使用 log 或 zap 记录关键操作与错误
+- 使用 zap 记录关键操作与错误
 - 所有数据库操作、指标采集都应有日志输出
 - 捕获并处理错误，避免程序崩溃
 #### 🎯 目标

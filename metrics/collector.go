@@ -3,15 +3,15 @@ package metrics
 import (
 	"context"
 	"database/sql"
-	"fmt"
-	"log"
+	"go.uber.org/zap"
 	dbase "oneclick-metrics-go/db"
+	"oneclick-metrics-go/global"
 	"sync"
 	"time"
 )
 
 func CollectMetrics(ctx0 context.Context, m *Metrics, db0 *sql.DB, wg *sync.WaitGroup) {
-	ticker := time.NewTicker(15 * time.Second)
+	ticker := time.NewTicker(time.Duration(global.ServerConfig.Interval) * time.Second)
 
 	type MetricTask struct {
 		Name     string
@@ -34,14 +34,14 @@ func CollectMetrics(ctx0 context.Context, m *Metrics, db0 *sql.DB, wg *sync.Wait
 	for i, task := range tasks {
 		conn, err := ensureConn(ctx0, db0, task.Name)
 		if err != nil {
-			log.Printf("初始化连接失败 [%s]: %v", tasks[i].Name, err)
+			zap.S().Infof("初始化连接失败 [%s]: %v", tasks[i].Name, err)
 			continue
 		}
 		conns[i] = conn
 
 		// 初次 prepare
 		if err := dbase.RegisterPreparedSQLsWithRetry(ctx0, task.QueryKey, conn, true); err != nil {
-			log.Printf("初次 prepare 失败 [%s]: %v", task.Name, err)
+			zap.S().Infof("初次 prepare 失败 [%s]: %v", task.Name, err)
 		}
 	}
 
@@ -53,7 +53,7 @@ func CollectMetrics(ctx0 context.Context, m *Metrics, db0 *sql.DB, wg *sync.Wait
 		for i, task := range tasks {
 			// 检查conn连接初始化是否完成
 			if conns[i] == nil {
-				log.Printf("[%s] 跳过执行：连接未初始化", task.Name)
+				zap.S().Infof("[%s] 跳过执行：连接未初始化", task.Name)
 				continue
 			}
 			wg.Add(1)
@@ -63,17 +63,17 @@ func CollectMetrics(ctx0 context.Context, m *Metrics, db0 *sql.DB, wg *sync.Wait
 
 				// 检查连接是否有效
 				if err := conns[i].PingContext(ctx0); err != nil {
-					log.Printf("[%s] 连接失效，尝试重连: %v", task.Name, err)
+					zap.S().Infof("[%s] 连接失效，尝试重连: %v", task.Name, err)
 					newConn, err := ensureConn(ctx0, db0, task.Name)
 					if err != nil {
-						log.Printf("[%s] 重连失败: %v", task.Name, err)
+						zap.S().Infof("[%s] 重连失败: %v", task.Name, err)
 						return
 					}
 					conns[i].Close()
 					conns[i] = newConn
 					// 重新进行prepare
 					if err := dbase.RegisterPreparedSQLsWithRetry(ctx0, task.QueryKey, conns[i], true); err != nil {
-						log.Printf("初次 prepare 失败 [%s]: %v", task.Name, err)
+						zap.S().Infof("初次 prepare 失败 [%s]: %v", task.Name, err)
 					}
 				}
 
@@ -94,8 +94,9 @@ func ensureConn(ctx context.Context, db *sql.DB, taskName string) (*sql.Conn, er
 		if err == nil {
 			return conn, nil
 		}
-		log.Printf("[%s] 获取连接失败（重试 %d）: %v", taskName, retry+1, err)
+		zap.S().Infof("[%s] 获取连接失败（重试 %d）: %v", taskName, retry+1, err)
 		time.Sleep(1 * time.Second)
 	}
-	return nil, fmt.Errorf("[%s] 获取连接失败，已重试 3 次: %w", taskName, err)
+	zap.S().Errorf("[%s] 获取连接失败，已重试 3 次: %w", taskName, err)
+	return nil, err
 }

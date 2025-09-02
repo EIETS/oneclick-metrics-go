@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"go.uber.org/zap"
 	"log"
 	"strings"
 	"time"
@@ -241,7 +242,7 @@ func RegisterPreparedSQLs(ctx context.Context, sqlName string, db *sql.Conn, fir
 		// 如果不是首次执行sql，sql已经注册过prepare，这时需要先释放prepare过的sql，重新进行prepare
 		_, err := db.ExecContext(ctx, "DEALLOCATE "+name)
 		if err != nil {
-			log.Printf("释放之前 prepare 过的 SQL 时出现错误 %s: %v", name, err)
+			zap.S().Errorf("释放之前 prepare 过的 SQL 时出现错误 %s: %v", name, err)
 		}
 	}
 
@@ -249,7 +250,7 @@ func RegisterPreparedSQLs(ctx context.Context, sqlName string, db *sql.Conn, fir
 	prepareStmt := "PREPARE " + name + param + " AS " + sqlText
 	_, err := db.ExecContext(ctx, prepareStmt)
 	if err != nil {
-		log.Printf("preparing SQL 时出错 %s: %v", name, err)
+		zap.S().Errorf("preparing SQL 时出错 %s: %v", name, err)
 	}
 
 	return nil

@@ -2,7 +2,7 @@ package metrics
 
 import (
 	"github.com/prometheus/client_golang/prometheus"
-	"log"
+	"go.uber.org/zap"
 	"sync"
 )
 
@@ -73,5 +73,5 @@ func RegisterMetrics(m *Metrics) {
 		m.OneClickResultReport,
 		m.OneClickCheckSummary,
 	)
-	log.Println("Registered Prometheus metrics")
+	zap.S().Info("Registered Prometheus metrics")
 }
