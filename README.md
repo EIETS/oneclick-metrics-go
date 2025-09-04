@@ -80,6 +80,10 @@ oneclick_pr_missing_report{pr_state="merged",project="CCL"} 0
 oneclick_pr_missing_report{pr_state="declined",project="CCL"} 0
 ```
 
+## 自动重连机制
+- 当数据库连接断开时，会使用二进制指数退避机制进行重连，保证系统的健壮性。
+![img_1.png](img_1.png)
+
 ## 🧭 总体目标
 将 Python 实现的 OneClick Metrics Exporter 重构为 Go 项目，具备以下能力：
 
